@@ -4,16 +4,13 @@
 
 # ASthoomgiicとは?
 
-ASthoomgiicは、将棋ったーにある原子将棋の開発中のAIです。
+ASthoomgiicは、将棋ったーにある原子将棋の開発中のAIです。  
 ルールを見たい場合、とりあえず遊びたい場合はこちらをご覧ください: <https://shogitter.com/rule/原子将棋>
 
 ## 名前の由来は?
-A t o m i c
- S h o g i
-     ↓
-ASthoomgiic
-
-これで伝わると思います。
+奇数文字目をAtomic、  
+偶数文字目をShogi  
+にするとASthoomgiicになりました。
 
 ## なぜ原子将棋を選んだの?
 数ある将棋ったーのルールの中でなぜ原子将棋を選んだかと言われると以下の2つの理由があります:
