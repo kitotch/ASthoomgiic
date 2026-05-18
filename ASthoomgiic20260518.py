@@ -36,6 +36,8 @@ def decodeSFEN(sfen):
     for s in sfen:
         if now == 0:
             if s == " ":
+                if emptyCount > 0:
+                    board[-1].extend(["___"] * emptyCount)
                 now += 1
             elif s == "/":
                 board[-1].extend(["___"] * emptyCount)
@@ -98,7 +100,7 @@ def leaperMoves(board, turn, x, y, dx, dy):
     if (0 <= x1 < 9) and (0 <= y1 < 9):
         if board[y1][x1] == "___" or (turn == 1 and board[y1][x1][0] == "w") or (turn == 0 and board[y1][x1][0] == "b"):
             newMoves.append((x, y, x1, y1, 0))
-            if (not (board[x][y][1] == "+" or board[x][y][2] in "gk")) and (turn == 1 and (y < 3 or y1 < 3)) or (turn == 0 and (y >= 6 or y1 >= 6)):
+            if (not (board[y][x][1] == "+" or board[y][x][2] in "gk")) and (turn == 1 and (y < 3 or y1 < 3)) or (turn == 0 and (y >= 6 or y1 >= 6)):
                 newMoves.append((x, y, x1, y1, 1))
     return newMoves
 
@@ -111,7 +113,7 @@ def riderMoves(board, turn, x, y, dx, dy):
     if (0 <= x1 < 9) and (0 <= y1 < 9):
         while board[y1][x1] == "___":
             newMoves.append((x, y, x1, y1, 0))
-            if (not (board[x][y][1] == "+" or board[x][y][2] in "gk")) and (turn == 1 and (y < 3 or y1 < 3)) or (turn == 0 and (y >= 6 or y1 >= 6)):
+            if (not (board[y][x][1] == "+" or board[y][x][2] in "gk")) and (turn == 1 and (y < 3 or y1 < 3)) or (turn == 0 and (y >= 6 or y1 >= 6)):
                 newMoves.append((x, y, x1, y1, 1))
             if turn == 1:
                 x1 += dx
@@ -124,7 +126,7 @@ def riderMoves(board, turn, x, y, dx, dy):
         else:
             if board[y1][x1] == "___" or (turn == 1 and board[y1][x1][0] == "w") or (turn == 0 and board[y1][x1][0] == "b"):
                 newMoves.append((x, y, x1, y1, 0))
-                if (not (board[x][y][1] == "+" or board[x][y][2] in "gk")) and (turn == 1 and (y < 3 or y1 < 3)) or (turn == 0 and (y >= 6 or y1 >= 6)):
+                if (not (board[y][x][1] == "+" or board[y][x][2] in "gk")) and (turn == 1 and (y < 3 or y1 < 3)) or (turn == 0 and (y >= 6 or y1 >= 6)):
                     newMoves.append((x, y, x1, y1, 1))
     return newMoves
 
@@ -160,6 +162,7 @@ def generateMoves(board, turn, hand, flag=True):
                         for i in riderMoves(board, turn, x, y, dx, dy):
                             legalMoves.add(i)
     if flag:
+        legalMoves |= set(dropMoves(board, turn, hand))
         illegalMoves = []
         for i in legalMoves:
             board1 = copy.deepcopy(board)
@@ -169,8 +172,6 @@ def generateMoves(board, turn, hand, flag=True):
         for i in illegalMoves:
             legalMoves.remove(i)
     legalMoves = list(legalMoves)
-    if flag:
-        legalMoves.extend(dropMoves(board, turn, hand))
     return sorted(legalMoves)
 
 def makeMoves(board, turn, hand, useMoves):
@@ -233,7 +234,7 @@ def CheckCheck(board, turn):
             return True
     return False
 
-def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[]):
+def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[], incFlag=True):
     legalMoves = generateMoves(board, turn, hand)
     MovesWithCheck = [] # 詰将棋として合法な手
     for i in legalMoves:
@@ -245,8 +246,9 @@ def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth
         if turn == StartTurn:
             if CheckCheck(board1, 1 - turn):
                 if HASH.hashNum in table and table[HASH.hashNum]["depth"] < depth:
-                    continue
-                MovesWithCheck.append(i)
+                    pass
+                else:
+                    MovesWithCheck.append(i)
         else:
             MovesWithCheck.append(i)
         HASH.toggleHash(delta)
@@ -261,6 +263,8 @@ def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth
         return
     firstFlag = True
     while True:
+        if table[HASH.hashNum]["isLeaf"]:
+            incFlag = False
         if turn == StartTurn:
             pn, dn = float("inf"), 0
         else:
@@ -307,23 +311,29 @@ def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth
                 return table[HASH.hashNum]["mateMove"]
             else:
                 return
-        if firstFlag and table[HASH.hashNum]["isLeaf"]:
+        if firstFlag and incFlag:
             thpn, thdn = max(thpn, pn + 1), max(thdn, dn + 1)
+        table[HASH.hashNum]["isLeaf"] = False
         if (pn >= thpn or dn >= thdn) and depth > 0:
             return
-        table[HASH.hashNum]["isLeaf"] = False
         if turn == StartTurn:
             pnList.sort()
-            Min1, Min2 = pnList[0], pnList[1]
-            childThpn = min(thpn, table[Min2[2]]["pn"])
-            childThdn = thdn - table[HASH.hashNum]["dn"] + table[Min1[2]]["dn"]
+            if len(pnList) == 1:
+                Min1, Min2 = pnList[0], pnList[0]
+            else:
+                Min1, Min2 = pnList[0], pnList[1]
+            childThpn = min(thpn, table[Min2[2]]["pn"] + 1)
+            childThdn = thdn - dn + table[Min2[2]]["dn"]
         else:
             dnList.sort()
-            Min1, Min2 = dnList[0], dnList[1]
-            childThpn = thpn - table[HASH.hashNum]["pn"] + table[Min1[2]]["pn"]
-            childThdn = min(thdn, table[Min2[2]]["dn"])
+            if len(dnList) == 1:
+                Min1, Min2 = dnList[0], dnList[0]
+            else:
+                Min1, Min2 = dnList[0], dnList[1]
+            childThpn = thpn - pn + table[Min2[2]]["pn"]
+            childThdn = min(thdn, table[Min2[2]]["dn"] + 1)
         board1 = copy.deepcopy(board)
-        hand1 = copy.deepcopy(hand1)
+        hand1 = copy.deepcopy(hand)
         delta = positionDelta(board, turn, hand, Min1[1])
         makeMoves(board1, turn, hand1, [Min1[1]])
         HASH.toggleHash(delta)
@@ -345,7 +355,7 @@ def positionDelta(board, turn, hand, useMove):
     else:
         delta.append(const2.index(board[y][x][1:]) + turn * 14 + y * 28 + x * 252)
         if board[y1][x1] == "___":
-            if promoteFlag == "+" or board[y][x] == "+":
+            if promoteFlag or board[y][x][1] == "+":
                 delta.append("plnsbr".index(board[y][x][2]) + 8 + turn * 14 + y1 * 28 + x1 * 252)
             else:
                 delta.append("plnsgbrk".index(board[y][x][2]) + turn * 14 + y1 * 28 + x1 * 252)
@@ -358,6 +368,7 @@ def positionDelta(board, turn, hand, useMove):
                                 delta.append(2268 + hand[turn]["plnsgbr".index(board[y2][x2][2])] - 1 + turn * 38)
                             delta.append(2268 + hand[turn]["plnsgbr".index(board[y2][x2][2])] + turn * 38)
                         delta.append(const2.index(board[y2][x2][1:]) + (board[y2][x2][0] == "b") * 14 + y2 * 28 + x2 * 252)
+    delta.append(2344)
     return delta
 
 class Zobrist:
