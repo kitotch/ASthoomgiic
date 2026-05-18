@@ -1,4 +1,4 @@
-import copy
+import copy, random
 
 #先手: 1
 #後手: 0
@@ -135,7 +135,14 @@ def dropMoves(board, turn, hand):
             if board[y][x] == "___":
                 for i in range(7):
                     if hand[turn][i] > 0 and not ((turn == 1 and (((i == 0 or i == 1 or i == 2) and y == 0) or (i == 2 and y == 1))) or (turn == 0 and (((i == 0 or i == 1 or i == 2) and y == 8) or (i == 2 and y == 7)))):
-                        newMoves.append((9, i, x, y, 0))
+                        if i == 0:
+                            for y1 in range(9):
+                                if (turn == 1 and board[y1][x] == "b_p") or (turn == 0 and board[y1][x] == "w_p"):
+                                    break
+                            else:
+                                newMoves.append((9, i, x, y, 0))
+                        else:
+                            newMoves.append((9, i, x, y, 0))
     return newMoves
 
 def generateMoves(board, turn, hand, flag=True):
@@ -155,8 +162,9 @@ def generateMoves(board, turn, hand, flag=True):
     if flag:
         illegalMoves = []
         for i in legalMoves:
-            winner, _ = makeMoves(copy.deepcopy(board), turn, copy.deepcopy(hand), [i])
-            if winner[1 - turn] or CheckCheck(board, turn):
+            board1 = copy.deepcopy(board)
+            winner, _ = makeMoves(board1, turn, [[0] * 7, [0] * 7], [i])
+            if winner[1 - turn] or CheckCheck(board1, turn):
                 illegalMoves.append(i)
         for i in illegalMoves:
             legalMoves.remove(i)
@@ -224,3 +232,141 @@ def CheckCheck(board, turn):
         if winner[1 - turn]:
             return True
     return False
+
+def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[]):
+    legalMoves = generateMoves(board, turn, hand)
+    MovesWithCheck = [] # 詰将棋として合法な手
+    for i in legalMoves:
+        board1 = copy.deepcopy(board)
+        hand1 = copy.deepcopy(hand)
+        delta = positionDelta(board, turn, hand, i)
+        makeMoves(board1, turn, hand1, [i])
+        HASH.toggleHash(delta)
+        if turn == StartTurn:
+            if CheckCheck(board1, 1 - turn):
+                if HASH.hashNum in table and table[HASH.hashNum]["depth"] < depth:
+                    continue
+                MovesWithCheck.append(i)
+        else:
+            MovesWithCheck.append(i)
+        HASH.toggleHash(delta)
+    if len(MovesWithCheck) == 0:
+        if turn == StartTurn:
+            table[HASH.hashNum]["pn"] = float("inf")
+            table[HASH.hashNum]["dn"] = 0
+        else:
+            table[HASH.hashNum]["pn"] = 0
+            table[HASH.hashNum]["dn"] = float("inf")
+            table[HASH.hashNum]["mateMove"] = copy.deepcopy(move)
+        return
+    firstFlag = True
+    while True:
+        if turn == StartTurn:
+            pn, dn = float("inf"), 0
+        else:
+            pn, dn = 0, float("inf")
+        pnList, dnList = [], []
+        mateMove = [None] * 2000
+        for i in MovesWithCheck:
+            delta = positionDelta(board, turn, hand, i)
+            HASH.toggleHash(delta)
+            if HASH.hashNum in table:
+                if table[HASH.hashNum]["dn"] == float("inf") and len(mateMove) > len(table[HASH.hashNum]["mateMove"]):
+                    mateMove = copy.deepcopy(table[HASH.hashNum]["mateMove"])
+                if turn == StartTurn:
+                    pn = min(pn, table[HASH.hashNum]["pn"])
+                    dn += table[HASH.hashNum]["dn"]
+                else:
+                    pn += table[HASH.hashNum]["pn"]
+                    dn = min(dn, table[HASH.hashNum]["dn"])
+            else:
+                table[HASH.hashNum] = {
+                    "pn": 1,
+                    "dn": 1,
+                    "depth": depth,
+                    "isLeaf": True,
+                    "mateMove": []
+                }
+                if turn == StartTurn:
+                    pn = min(pn, 1)
+                    dn += 1
+                else:
+                    pn += 1
+                    dn = min(dn, 1)
+            if turn == StartTurn:
+                pnList.append((table[HASH.hashNum]["pn"], i, HASH.hashNum))
+            else:
+                dnList.append((table[HASH.hashNum]["dn"], i, HASH.hashNum))
+            HASH.toggleHash(delta)
+        table[HASH.hashNum]["pn"] = pn
+        table[HASH.hashNum]["dn"] = dn
+        if pn == float("inf") or dn == float("inf"):
+            if dn == float("inf"):
+                table[HASH.hashNum]["mateMove"] = mateMove
+            if depth == 0:
+                return table[HASH.hashNum]["mateMove"]
+            else:
+                return
+        if firstFlag and table[HASH.hashNum]["isLeaf"]:
+            thpn, thdn = max(thpn, pn + 1), max(thdn, dn + 1)
+        if (pn >= thpn or dn >= thdn) and depth > 0:
+            return
+        table[HASH.hashNum]["isLeaf"] = False
+        if turn == StartTurn:
+            pnList.sort()
+            Min1, Min2 = pnList[0], pnList[1]
+            childThpn = min(thpn, table[Min2[2]]["pn"])
+            childThdn = thdn - table[HASH.hashNum]["dn"] + table[Min1[2]]["dn"]
+        else:
+            dnList.sort()
+            Min1, Min2 = dnList[0], dnList[1]
+            childThpn = thpn - table[HASH.hashNum]["pn"] + table[Min1[2]]["pn"]
+            childThdn = min(thdn, table[Min2[2]]["dn"])
+        board1 = copy.deepcopy(board)
+        hand1 = copy.deepcopy(hand1)
+        delta = positionDelta(board, turn, hand, Min1[1])
+        makeMoves(board1, turn, hand1, [Min1[1]])
+        HASH.toggleHash(delta)
+        move.append(Min1[1])
+        df_pn(board1, 1 - turn, hand1, StartTurn, HASH, table, depth + 1, childThpn, childThdn, move)
+        move.pop()
+        HASH.toggleHash(delta)
+
+def positionDelta(board, turn, hand, useMove):
+    delta = []
+    const1 = [0, 18, 22, 26, 30, 34, 36]
+    const2 = ["_p", "_l", "_n", "_s", "_g", "_b", "_r", "_k", "+p", "+l", "+n", "+s", "+b", "+r"]
+    x, y, x1, y1, promoteFlag = useMove
+    if x == 9:
+        delta.append(turn * 14 + y + y1 * 28 + x1 * 252)
+        delta.append(2268 + const1[y] + hand[turn][y] - 1 + turn * 38)
+        if hand[turn][y] != 1:
+            delta.append(2268 + const1[y] + hand[turn][y] - 2 + turn * 38)
+    else:
+        delta.append(const2.index(board[y][x][1:]) + turn * 14 + y * 28 + x * 252)
+        if board[y1][x1] == "___":
+            if promoteFlag == "+" or board[y][x] == "+":
+                delta.append("plnsbr".index(board[y][x][2]) + 8 + turn * 14 + y1 * 28 + x1 * 252)
+            else:
+                delta.append("plnsgbrk".index(board[y][x][2]) + turn * 14 + y1 * 28 + x1 * 252)
+        else:
+            for y2 in range(y1-1, y1+2):
+                for x2 in range(x1-1, x1+2):
+                    if (0 <= y2 < 9 and 0 <= x2 < 9) and (board[y2][x2] != "___"):
+                        if (board[y2][x2][0] == "b" and turn == 0) or (board[y2][x2][0] == "w" and turn == 1):
+                            if hand[turn]["plnsgbr".index(board[y2][x2][2])] != 0:
+                                delta.append(2268 + hand[turn]["plnsgbr".index(board[y2][x2][2])] - 1 + turn * 38)
+                            delta.append(2268 + hand[turn]["plnsgbr".index(board[y2][x2][2])] + turn * 38)
+                        delta.append(const2.index(board[y2][x2][1:]) + (board[y2][x2][0] == "b") * 14 + y2 * 28 + x2 * 252)
+    return delta
+
+class Zobrist:
+    def __init__(self):
+        self.hashNum = 0
+        self.toHashNum = [random.getrandbits(64) for i in range(2345)]
+        # 0~2267: Board
+        # 2268~2343: Hand
+        # 2344: Turn
+    def toggleHash(self, d):
+        for i in d:
+            self.hashNum ^= self.toHashNum[i]
