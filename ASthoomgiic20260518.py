@@ -1,4 +1,4 @@
-import copy, random, time
+import copy, random
 
 #先手: 1
 #後手: 0
@@ -165,10 +165,10 @@ def generateMoves(board, turn, hand, flag=True):
         legalMoves |= set(dropMoves(board, turn, hand))
         illegalMoves = []
         for i in legalMoves:
-            winner, _, delta = makeMoves(board, turn, [[0] * 7, [0] * 7], [i])
-            if winner[1 - turn] or CheckCheck(board, turn):
+            board1 = copy.deepcopy(board)
+            winner, _ = makeMoves(board1, turn, [[0] * 7, [0] * 7], [i])
+            if winner[1 - turn] or CheckCheck(board1, turn):
                 illegalMoves.append(i)
-            undo(board, turn, [[0] * 7, [0] * 7], delta)
         for i in illegalMoves:
             legalMoves.remove(i)
     legalMoves = list(legalMoves)
@@ -176,25 +176,19 @@ def generateMoves(board, turn, hand, flag=True):
 
 def makeMoves(board, turn, hand, useMoves):
     winner = [0, 0]
-    delta = {"add": [], "remove": [], "hand": []}
     for x, y, x1, y1, promoteFlag in useMoves:
         if turn == 1:
             if x == 9:
                 board[y1][x1] = f"b_{"plnsgbr"[y]}"
-                delta["add"].append((x1, y1, board[y1][x1]))
                 hand[1][y] -= 1
-                delta["hand"].append((1, y, -1))
             else:
                 if board[y1][x1] == "___":
                     if promoteFlag:
                         board[y1][x1] = f"b+{board[y][x][2]}"
                     else:
                         board[y1][x1] = f"b{board[y][x][1:]}"
-                    delta["add"].append((x1, y1, board[y1][x1]))
-                    delta["remove"].append((x, y, board[y][x]))
                 else:
-                    delta["remove"].append((x, y, board[y][x]))
-                    winFlag = explosion(board, turn, hand, x1, y1, delta)
+                    winFlag = explosion(board, turn, hand, x1, y1)
                     if winner[0] == winner[1] == 0:
                         for i in winFlag:
                             winner[i] = 1
@@ -202,64 +196,55 @@ def makeMoves(board, turn, hand, useMoves):
         else:
             if x == 9:
                 board[y1][x1] = f"w_{"plnsgbr"[y]}"
-                delta["add"].append((x1, y1, board[y1][x1]))
                 hand[0][y] -= 1
-                delta["hand"].append((1, y, -1))
             else:
                 if board[y1][x1] == "___":
                     if promoteFlag:
                         board[y1][x1] = f"w+{board[y][x][2]}"
                     else:
                         board[y1][x1] = f"w{board[y][x][1:]}"
-                    delta["add"].append((x1, y1, board[y1][x1]))
-                    delta["remove"].append((x, y, board[y][x]))
                 else:
-                    delta["remove"].append((x, y, board[y][x]))
-                    winFlag = explosion(board, turn, hand, x1, y1, delta)
+                    winFlag = explosion(board, turn, hand, x1, y1)
                     if winner[0] == winner[1] == 0:
                         for i in winFlag:
                             winner[i] = 1
                 board[y][x] = "___"
         turn = 1 - turn
-    return winner, turn, delta
+    return winner, turn
 
-def explosion(board, turn, hand, x1, y1, delta):
+def explosion(board, turn, hand, x1, y1):
     winFlag = []
     for y in range(y1-1, y1+2):
         for x in range(x1-1, x1+2):
             if (0 <= x < 9 and 0 <= y < 9) and ((x == x1 and y == y1) or board[y][x][1:] != "_p"):
-                delta["remove"].append((x, y, board[y][x]))
                 if board[y][x] == "b_k":
                     winFlag.append(0)
                 elif board[y][x] == "w_k":
                     winFlag.append(1)
                 elif (turn == 1 and board[y][x][0] == "w") or (turn == 0 and board[y][x][0] == "b"):
                     hand[turn]["plnsgbr".find(board[y][x][2])] += 1
-                    delta["hand"].append((turn, "plnsgbr".find(board[y][x][2]), 1))
                 board[y][x] = "___"
     return winFlag
 
 def CheckCheck(board, turn):
     legalMoves = generateMoves(board, 1 - turn, None, False)
     for i in legalMoves:
-        winner, _, delta = makeMoves(board, 1 - turn, [[0] * 7, [0] * 7], [i])
-        #print(delta)
-        undo(board, turn, [[0] * 7, [0] * 7], delta)
+        winner, _ = makeMoves(copy.deepcopy(board), 1 - turn, [[0] * 7, [0] * 7], [i])
         if winner[1 - turn]:
             return True
     return False
 
-def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[], incFlag=True):
-    if table[HASH.hashNum]["isLeaf"]:
-        node[0] += 1
+def df_pn(board, turn, hand, StartTurn, HASH, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[], incFlag=True):
     legalMoves = generateMoves(board, turn, hand)
     MovesWithCheck = [] # 詰将棋として合法な手
     for i in legalMoves:
+        board1 = copy.deepcopy(board)
+        hand1 = copy.deepcopy(hand)
         delta = positionDelta(board, turn, hand, i)
-        _, _, delta1 = makeMoves(board, turn, hand, [i])
+        makeMoves(board1, turn, hand1, [i])
         HASH.toggleHash(delta)
         if turn == StartTurn:
-            if CheckCheck(board, 1 - turn):
+            if CheckCheck(board1, 1 - turn):
                 if HASH.hashNum in table and table[HASH.hashNum]["depth"] < depth:
                     pass
                 else:
@@ -267,7 +252,6 @@ def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, 
         else:
             MovesWithCheck.append(i)
         HASH.toggleHash(delta)
-        undo(board, turn, hand, delta1)
     if len(MovesWithCheck) == 0:
         if turn == StartTurn:
             table[HASH.hashNum]["pn"] = float("inf")
@@ -348,14 +332,15 @@ def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, 
                 Min1, Min2 = dnList[0], dnList[1]
             childThpn = thpn - pn + table[Min2[2]]["pn"]
             childThdn = min(thdn, table[Min2[2]]["dn"] + 1)
+        board1 = copy.deepcopy(board)
+        hand1 = copy.deepcopy(hand)
         delta = positionDelta(board, turn, hand, Min1[1])
-        _, _, delta1 = makeMoves(board, turn, hand, [Min1[1]])
+        makeMoves(board1, turn, hand1, [Min1[1]])
         HASH.toggleHash(delta)
         move.append(Min1[1])
-        df_pn(board, 1 - turn, hand, StartTurn, HASH, node, table, depth + 1, childThpn, childThdn, move)
+        df_pn(board1, 1 - turn, hand1, StartTurn, HASH, table, depth + 1, childThpn, childThdn, move)
         move.pop()
         HASH.toggleHash(delta)
-        undo(board, turn, hand, delta1)
 
 def positionDelta(board, turn, hand, useMove):
     delta = []
@@ -385,14 +370,6 @@ def positionDelta(board, turn, hand, useMove):
                         delta.append(const2.index(board[y2][x2][1:]) + (board[y2][x2][0] == "b") * 14 + y2 * 28 + x2 * 252)
     delta.append(2344)
     return delta
-
-def undo(board, turn, hand, delta):
-    for x, y, piece in delta["add"]:
-        board[y][x] = "___"
-    for x, y, piece in delta["remove"]:
-        board[y][x] = piece
-    for t, num, d in delta["hand"]:
-        hand[t][num] -= d
 
 class Zobrist:
     def __init__(self):
