@@ -1,4 +1,8 @@
 import copy, random, time
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
 
 #先手: 1
 #後手: 0
@@ -396,18 +400,45 @@ def undo(board, turn, hand, delta):
     for t, num, d in delta["hand"]:
         hand[t][num] -= d
 
-def negaalpha(board, turn, hand, depth, alpha=-float("inf"), beta=float("inf"), timeLimit=float("inf"), startTime=time.time()):
-    if depth <= 0:
-        return Ev(board, turn, hand), None
+def negaalpha(board, turn, hand, depth, alpha=-float("inf"), beta=float("inf"), timeLimit=float("inf"), startTime=time.time(), model=None, blackKing=None, whiteKing=None, FirstFlag=True):
+    if depth <= 0 or time.time() - startTime >= timeLimit:
+        if model is not None:
+            return model.evaluate() * (turn * 2 - 1), None
+        else:
+            return Ev(board, turn, hand), None
+    if FirstFlag and model is not None:
+        indices, blackKing, whiteKing = getFeatures(board, turn, hand)
+        model.initialize(indices)
     legalMoves = generateMoves(board, turn, hand)
     if len(legalMoves) == 0:
         return -float("inf"), None
     maxScore = -float("inf")
     maxMove = None
     for move in legalMoves:
+        if time.time() - startTime >= timeLimit:
+            break
+        flag1 = False
+        if model is not None and board[move[1]][move[0]][2] == "k":
+            flag1 = True
+            beforeIndices, _, _ = getFeatures(board, turn, hand)
         _, _, delta = makeMoves(board, turn, hand, [move])
-        moveScore, _ = negaalpha(board, 1 - turn, hand, depth - 1, -beta, -alpha, timeLimit=timeLimit, startTime=startTime)
+        if model is not None:
+            if flag1:
+                indices1, blackKing1, whiteKing1 = getFeatures(board, turn, hand)
+                model.initialize(indices1)
+                moveScore, _ = negaalpha(board, 1 - turn, hand, depth - 1, -beta, -alpha, timeLimit=timeLimit, startTime=time.time(), model=model, blackKing=blackKing1, whiteKing=whiteKing1, FirstFlag=False)
+            else:
+                indices_add, indices_remove = getFeaturesDelta(board, turn, hand, delta, blackKing, whiteKing)
+                model.update(indices_add, indices_remove)
+                moveScore, _ = negaalpha(board, 1 - turn, hand, depth - 1, -beta, -alpha, timeLimit=timeLimit, startTime=time.time(), model=model, blackKing=blackKing, whiteKing=whiteKing, FirstFlag=False)
+        else:
+            moveScore, _ = negaalpha(board, 1 - turn, hand, depth - 1, -beta, -alpha, timeLimit=timeLimit, startTime=time.time(), FirstFlag=False)
         moveScore *= -1
+        if model is not None:
+            if flag1:
+                model.initialize(beforeIndices)
+            else:
+                model.update(indices_remove, indices_add)
         undo(board, turn, hand, delta)
         if maxScore < moveScore:
             maxMove = move
@@ -454,13 +485,71 @@ def Ev(board, turn, hand):
         score -= piecesScore[const2[i]] * hand[1 - turn][i] * 2
     return score
 
-def ASthoomgiic(board, turn, hand, limit=10.0):
+def ASthoomgiic(board, turn, hand, limit=10.0, depth=2):
     HASH = Zobrist()
     ans = df_pn(board, turn, hand, turn, HASH, [0], timeLimit=limit / 5)
     if ans is not None:
         return float("inf"), ans[0]
-    score, move = negaalpha(board, turn, hand, depth=2, timeLimit=limit / 4 * 3)
+    score, move = negaalpha(board, turn, hand, depth=depth, timeLimit=limit / 4 * 3)
     return score, move
+
+def getFeatures(board, turn, hand):
+    blackKing = (-1, -1)
+    whiteKing = (-1, -1)
+    blackPieces = []
+    whitePieces = []
+    for x in range(9):
+        for y in range(9):
+            if board[y][x][2] == "k":
+                if board[y][x][0] == "b":
+                    blackKing = (x, y)
+                else:
+                    whiteKing = (x, y)
+            elif board[y][x][0] == "b":
+                blackPieces.append((x, y))
+            elif board[y][x][0] == "w":
+                whitePieces.append((x, y))
+    indices = []
+    const1 = [0, 18, 22, 26, 30, 34, 36]
+    const2 = ["_p", "_l", "_n", "_s", "_g", "_b", "_r", "_k", "+p", "+l", "+n", "+s", "+b", "+r"]
+    for x, y in blackPieces:
+        indices.append((((const2.index(board[y][x][1:]) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
+        indices.append(((((28 + const2.index(board[y][x][1:])) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+    for x, y in whitePieces:
+        indices.append(((((const2.index(board[y][x][1:]) + 14) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
+        indices.append(((((28 + const2.index(board[y][x][1:]) + 14) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+    for i in range(7):
+        indices.append(((const1[i] + hand[0][i] + 4536) * 9 + blackKing[1]) * 9 + blackKing[0])
+        indices.append(((const1[i] + hand[1][i] + 38 + 4536) * 9 + blackKing[1]) * 9 + blackKing[0])
+        indices.append(((const1[i] + hand[0][i] + 76 + 4536) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+        indices.append(((const1[i] + hand[1][i] + 114 + 4536) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+    return indices, blackKing, whiteKing
+
+def getFeaturesDelta(board, turn, hand, delta, blackKing, whiteKing):
+    const1 = [0, 18, 22, 26, 30, 34, 36]
+    const2 = ["_p", "_l", "_n", "_s", "_g", "_b", "_r", "_k", "+p", "+l", "+n", "+s", "+b", "+r"]
+    indices_add = []
+    indices_remove = []
+    for x, y, piece in delta["add"]:
+        if piece[0] == "b":
+            indices_add.append((((const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
+            indices_add.append((((28 + const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+        if piece[0] == "2":
+            indices_add.append((((const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
+            indices_add.append((((28 + const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+    for x, y, piece in delta["remove"]:
+        if piece[0] == "b":
+            indices_remove.append((((const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
+            indices_remove.append((((28 + const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+        if piece[0] == "2":
+            indices_remove.append((((const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
+            indices_remove.append((((28 + const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+    for t, piece, d in delta["hand"]:
+        indices_remove.append(((const1[piece] + hand[t][piece] + t * 38 + 4536) * 9 + blackKing[1]) * 9 + blackKing[0])
+        indices_remove.append(((const1[piece] + hand[t][piece] + t * 38 + 76 + 4536) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+        indices_add.append(((const1[piece] + hand[t][piece] + d + t * 38 + 4536) * 9 + blackKing[1]) * 9 + blackKing[0])
+        indices_add.append(((const1[piece] + hand[t][piece] + d + t * 38 + 76 + 4536) * 9 + whiteKing[1]) * 9 + whiteKing[0])
+    return indices_add, indices_remove
 
 class Zobrist:
     def __init__(self):
@@ -472,3 +561,52 @@ class Zobrist:
     def toggleHash(self, d):
         for i in d:
             self.hashNum ^= self.toHashNum[i]
+
+class NNUE(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        FEATURE_SIZE = 379728
+        HIDDEN1_SIZE = 256
+        HIDDEN2_SIZE = 256
+        HIDDEN3_SIZE = 32
+        HIDDEN4_SIZE = 32
+        self.embedding = nn.EmbeddingBag(num_embeddings=FEATURE_SIZE, embedding_dim=HIDDEN1_SIZE, mode="sum", sparse=True)
+        self.fc2 = nn.Linear(HIDDEN1_SIZE, HIDDEN2_SIZE)
+        self.fc3 = nn.Linear(HIDDEN2_SIZE, HIDDEN3_SIZE)
+        self.fc4 = nn.Linear(HIDDEN3_SIZE, HIDDEN4_SIZE)
+        self.fc5 = nn.Linear(HIDDEN4_SIZE, 1)
+        self.accumulator = None
+
+    def initialize(self, active_indices):
+        indices = torch.tensor(active_indices, dtype=torch.long).unsqueeze(0)
+        with torch.no_grad():
+            self.accumulator = (
+                self.embedding(indices)
+            )
+
+    def update(self, remove_idx, add_idx):
+        with torch.no_grad():
+            self.accumulator -= self.embedding.weight.data[remove_idx].sum(dim=0)
+            self.accumulator += self.embedding.weight.data[add_idx].sum(dim=0)
+
+    def evaluate(self):
+        x = F.relu(self.accumulator)
+        x = self.fc2(x)
+        x = F.relu(x)
+        x = self.fc3(x)
+        x = F.relu(x)
+        x = self.fc4(x)
+        x = F.relu(x)
+        x = self.fc5(x)
+        return x
+
+    def forward(self, indices, mask=None):
+        x = self.embedding(indices)
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        return torch.sigmoid(self.fc5(x) / 32)
+
+board, turn, hand, moves = decodeSFEN(startpos)
+print(ASthoomgiic(board, turn, hand, 3, 3))
