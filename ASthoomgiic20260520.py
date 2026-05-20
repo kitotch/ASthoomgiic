@@ -249,7 +249,7 @@ def CheckCheck(board, turn):
             return True
     return False
 
-def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[], incFlag=True):
+def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, "depth": -1, "isLeaf": True, "mateMove": []}}, depth=0, thpn=1, thdn=1, move=[], incFlag=True, timeLimit=float("inf"), startTime=time.time()):
     if table[HASH.hashNum]["isLeaf"]:
         node[0] += 1
     legalMoves = generateMoves(board, turn, hand)
@@ -279,6 +279,8 @@ def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, 
         return
     firstFlag = True
     while True:
+        if time.time() - startTime >= timeLimit:
+            return
         if table[HASH.hashNum]["isLeaf"]:
             incFlag = False
         if turn == StartTurn:
@@ -352,7 +354,7 @@ def df_pn(board, turn, hand, StartTurn, HASH, node, table={0:{"pn": 1, "dn": 1, 
         _, _, delta1 = makeMoves(board, turn, hand, [Min1[1]])
         HASH.toggleHash(delta)
         move.append(Min1[1])
-        df_pn(board, 1 - turn, hand, StartTurn, HASH, node, table, depth + 1, childThpn, childThdn, move)
+        df_pn(board, 1 - turn, hand, StartTurn, HASH, node, table, depth + 1, childThpn, childThdn, move, timeLimit=timeLimit, startTime=startTime)
         move.pop()
         HASH.toggleHash(delta)
         undo(board, turn, hand, delta1)
@@ -394,7 +396,7 @@ def undo(board, turn, hand, delta):
     for t, num, d in delta["hand"]:
         hand[t][num] -= d
 
-def negaalpha(board, turn, hand, depth, alpha=-float("inf"), beta=float("inf")):
+def negaalpha(board, turn, hand, depth, alpha=-float("inf"), beta=float("inf"), timeLimit=float("inf"), startTime=time.time()):
     if depth <= 0:
         return Ev(board, turn, hand), None
     legalMoves = generateMoves(board, turn, hand)
@@ -442,10 +444,23 @@ def Ev(board, turn, hand):
         for y in range(9):
             if board[y][x] != "___" and board[y][x][2] != "k":
                 if (turn == 0 and board[y][x][0] == "w") or (turn == 1 and board[y][x][0] == "b"):
-                    score += piecesScore[board[y][x][1:]] * (1 + 0.0625 * min(abs(x - kings["bw"[turn]][0]), abs(y - kings["bw"[turn]][1])))
+                    score += piecesScore[board[y][x][1:]] * (1 + 2 * (min(abs(x - kings["bw"[turn]][0]), abs(y - kings["bw"[turn]][1])) == 1))
                 else:
-                    score -= piecesScore[board[y][x][1:]] * (1 + 0.0625 * min(abs(x - kings["wb"[turn]][0]), abs(y - kings["wb"[turn]][1])))
+                    score -= piecesScore[board[y][x][1:]] * (1 + 2 * (min(abs(x - kings["wb"[turn]][0]), abs(y - kings["wb"[turn]][1])) == 1))
+    const2 = ["_p", "_l", "_n", "_s", "_g", "_b", "_r"]
+    for i in range(7):
+        score += piecesScore[const2[i]] * hand[turn][i] * 2
+    for i in range(7):
+        score -= piecesScore[const2[i]] * hand[1 - turn][i] * 2
     return score
+
+def ASthoomgiic(board, turn, hand, limit=10.0):
+    HASH = Zobrist()
+    ans = df_pn(board, turn, hand, turn, HASH, [0], timeLimit=limit / 5)
+    if ans is not None:
+        return float("inf"), ans[0]
+    score, move = negaalpha(board, turn, hand, depth=2, timeLimit=limit / 4 * 3)
+    return score, move
 
 class Zobrist:
     def __init__(self):
