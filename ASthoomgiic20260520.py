@@ -534,14 +534,14 @@ def getFeaturesDelta(board, turn, hand, delta, blackKing, whiteKing):
         if piece[0] == "b":
             indices_add.append((((const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
             indices_add.append((((28 + const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
-        if piece[0] == "2":
+        if piece[0] == "w":
             indices_add.append((((const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
             indices_add.append((((28 + const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
     for x, y, piece in delta["remove"]:
         if piece[0] == "b":
             indices_remove.append((((const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
             indices_remove.append((((28 + const2.index(piece[1:]) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
-        if piece[0] == "2":
+        if piece[0] == "w":
             indices_remove.append((((const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + blackKing[1]) * 9 + blackKing[0])
             indices_remove.append((((28 + const2.index(piece[1:] + 14) * 9 + y) * 9 + x) * 9 + whiteKing[1]) * 9 + whiteKing[0])
     for t, piece, d in delta["hand"]:
