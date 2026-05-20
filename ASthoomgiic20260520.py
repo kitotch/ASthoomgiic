@@ -406,7 +406,7 @@ def negaalpha(board, turn, hand, depth, alpha=-float("inf"), beta=float("inf"), 
     maxMove = None
     for move in legalMoves:
         _, _, delta = makeMoves(board, turn, hand, [move])
-        moveScore, _ = negaalpha(board, turn, hand, depth - 1, -beta, -alpha, timeLimit=timeLimit, startTime=startTime)
+        moveScore, _ = negaalpha(board, 1 - turn, hand, depth - 1, -beta, -alpha, timeLimit=timeLimit, startTime=startTime)
         moveScore *= -1
         undo(board, turn, hand, delta)
         if maxScore < moveScore:
